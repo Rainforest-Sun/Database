@@ -67,8 +67,7 @@ public class HeapPage implements Page {
     */
     private int getNumTuples() {        
         // some code goes here
-        return 0;
-
+        return (int) Math.floor((BufferPool.getPageSize() * 8) / (this.td.getSize() * 8 + 1));
     }
 
     /**
@@ -76,10 +75,8 @@ public class HeapPage implements Page {
      * @return the number of bytes in the header of a page in a HeapFile with each tuple occupying tupleSize bytes
      */
     private int getHeaderSize() {        
-        
         // some code goes here
-        return 0;
-                 
+        return (int) Math.ceil(this.numSlots / 8.0);
     }
     
     /** Return a view of this page before it was modified
@@ -112,7 +109,8 @@ public class HeapPage implements Page {
      */
     public HeapPageId getId() {
     // some code goes here
-    throw new UnsupportedOperationException("implement this");
+    // throw new UnsupportedOperationException("implement this");
+        return this.pid;
     }
 
     /**
@@ -282,7 +280,13 @@ public class HeapPage implements Page {
      */
     public int getNumEmptySlots() {
         // some code goes here
-        return 0;
+        int count = 0;
+        for (int i = 0; i < this.numSlots; i++) {
+            if (!isSlotUsed(i)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /**
@@ -290,7 +294,12 @@ public class HeapPage implements Page {
      */
     public boolean isSlotUsed(int i) {
         // some code goes here
-        return false;
+        if (i < 0 || i >= this.numSlots) {
+            throw new IllegalArgumentException("Invalid slot number");
+        }
+        int headerIndex = i / 8;
+        int bitIndex = i % 8;
+        return (header[headerIndex] & (1 << bitIndex)) != 0;
     }
 
     /**
@@ -302,12 +311,55 @@ public class HeapPage implements Page {
     }
 
     /**
+     * An auxiliary class to help with the implementation of the iterator
+     */
+    public class HeapPageIterator implements Iterator<Tuple> {
+        private HeapPage heapPage;
+        private int cursor;
+
+        public HeapPageIterator(HeapPage heapPage) {
+            this.heapPage = heapPage;
+            this.cursor = -1;
+        }
+
+        @Override
+        public boolean hasNext() {
+            for (int i = this.cursor + 1; i < this.heapPage.numSlots; i++) {
+                if (this.heapPage.isSlotUsed(i)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public Tuple next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+            this.cursor++;
+            while (this.cursor < this.heapPage.numSlots) {
+                if (isSlotUsed(this.cursor)) {
+                    return this.heapPage.tuples[this.cursor];
+                }
+                this.cursor++;
+            }
+            return null;
+        }
+
+        @Override
+        public void remove() {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    /**
      * @return an iterator over all tuples on this page (calling remove on this iterator throws an UnsupportedOperationException)
      * (note that this iterator shouldn't return tuples in empty slots!)
      */
     public Iterator<Tuple> iterator() {
         // some code goes here
-        return null;
+        return new HeapPageIterator(this);
     }
 
 }

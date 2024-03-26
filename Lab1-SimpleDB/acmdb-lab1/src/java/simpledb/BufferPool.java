@@ -75,7 +75,7 @@ public class BufferPool {
         if (pages.containsKey(pid)) {
             return pages.get(pid);
         }
-        if (pages.size() >= thsi.numPages) {
+        if (pages.size() >= this.numPages) {
             throw new DbException("BufferPool is full");
         }
         DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
