@@ -2,6 +2,7 @@ package simpledb;
 
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * HeapFile is an implementation of a DbFile that stores a collection of tuples
@@ -15,6 +16,10 @@ import java.util.*;
  */
 public class HeapFile implements DbFile {
 
+    private File file;
+    private TupleDesc td;
+    private ConcurrentHashMap<PageId, Page> PageIdToPage;
+
     /**
      * Constructs a heap file backed by the specified file.
      * 
@@ -24,6 +29,9 @@ public class HeapFile implements DbFile {
      */
     public HeapFile(File f, TupleDesc td) {
         // some code goes here
+        this.file = f;
+        this.td = td;
+        this.PageIdToPage = new ConcurrentHashMap<>();
     }
 
     /**
@@ -33,7 +41,7 @@ public class HeapFile implements DbFile {
      */
     public File getFile() {
         // some code goes here
-        return null;
+        return this.file;
     }
 
     /**
@@ -47,7 +55,8 @@ public class HeapFile implements DbFile {
      */
     public int getId() {
         // some code goes here
-        throw new UnsupportedOperationException("implement this");
+        // throw new UnsupportedOperationException("implement this");
+        return this.file.getAbsoluteFile().hashCode();
     }
 
     /**
@@ -57,13 +66,22 @@ public class HeapFile implements DbFile {
      */
     public TupleDesc getTupleDesc() {
         // some code goes here
-        throw new UnsupportedOperationException("implement this");
+        // throw new UnsupportedOperationException("implement this");
+        return this.td;
     }
 
     // see DbFile.java for javadocs
     public Page readPage(PageId pid) {
         // some code goes here
-        return null;
+        FileInputStream fis = new FileInputStream(file);
+        byte[] data = new byte[BufferPool.getPageSize()];
+        fis.skip(pid.pageNumber() * BufferPool.getPageSize());
+        fis.read(data);
+        fis.close();
+
+        Page page = new HeapPage((HeapPageId) pid, data);
+        this.PageIdToPage.put(pid, page);
+        return page;
     }
 
     // see DbFile.java for javadocs
@@ -77,7 +95,7 @@ public class HeapFile implements DbFile {
      */
     public int numPages() {
         // some code goes here
-        return 0;
+        return this.PageIdToPage.size();
     }
 
     // see DbFile.java for javadocs
@@ -96,10 +114,59 @@ public class HeapFile implements DbFile {
         // not necessary for lab1
     }
 
+    /**
+     * An auxiliary class that implements the Java Iterator for tuples on a page
+     */
+    public class HeapFileIterator implements iterator<Tuple> {
+        private Iterator<PageId> pageIdIterator;
+        private Iterator<Tuple> tupleIterator;
+        private TransactionId tid;
+        private PageId pid;
+        private HeapPage page;
+
+        public HeapFileIterator(TransactionId tid) {
+            this.pageIdIterator = PageIdToPage.keySet().iterator();
+            this.tupleIterator = null;
+            this.tid = tid;
+            this.pid = null;
+            this.page = null;
+        }
+
+        public boolean hasNext() {
+            if (this.tupleIterator != null && this.tupleIterator.hasNext()) {
+                return true;
+            }
+            while (this.pageIdIterator.hasNext()) {
+                this.pid = this.pageIdIterator.next();
+                this.page = (HeapPage) PageIdToPage.get(pid);
+                this.tupleIterator = page.iterator();
+                if (this.tupleIterator.hasNext()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public Tuple next() {
+            if (this.tupleIterator == null || !this.tupleIterator.hasNext()) {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+            }
+            return this.tupleIterator.next();
+        }
+
+        public void remove() {
+            throw new UnsupportedOperationException();
+        }
+
+
+    }
+
     // see DbFile.java for javadocs
     public DbFileIterator iterator(TransactionId tid) {
         // some code goes here
-        return null;
+        return new HeapFileIterator(tid);
     }
 
 }
