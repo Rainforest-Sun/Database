@@ -271,7 +271,7 @@ public class HeapPage implements Page {
      */
     public TransactionId isDirty() {
         // some code goes here
-	// Not necessary for lab1
+	    // Not necessary for lab1
         return null;      
     }
 
@@ -311,55 +311,18 @@ public class HeapPage implements Page {
     }
 
     /**
-     * An auxiliary class to help with the implementation of the iterator
-     */
-    public class HeapPageIterator implements Iterator<Tuple> {
-        private HeapPage heapPage;
-        private int cursor;
-
-        public HeapPageIterator(HeapPage heapPage) {
-            this.heapPage = heapPage;
-            this.cursor = -1;
-        }
-
-        @Override
-        public boolean hasNext() {
-            for (int i = this.cursor + 1; i < this.heapPage.numSlots; i++) {
-                if (this.heapPage.isSlotUsed(i)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        @Override
-        public Tuple next() {
-            if (!hasNext()) {
-                throw new NoSuchElementException();
-            }
-            this.cursor++;
-            while (this.cursor < this.heapPage.numSlots) {
-                if (isSlotUsed(this.cursor)) {
-                    return this.heapPage.tuples[this.cursor];
-                }
-                this.cursor++;
-            }
-            return null;
-        }
-
-        @Override
-        public void remove() {
-            throw new UnsupportedOperationException();
-        }
-    }
-
-    /**
      * @return an iterator over all tuples on this page (calling remove on this iterator throws an UnsupportedOperationException)
      * (note that this iterator shouldn't return tuples in empty slots!)
      */
     public Iterator<Tuple> iterator() {
         // some code goes here
-        return new HeapPageIterator(this);
+        ArrayList<Tuple> tupleList = new ArrayList<>();
+        for (int i = 0; i < this.numSlots; ++i) {
+            if (isSlotUsed(i)) {
+                tupleList.add(this.tuples[i]);
+            }
+        }
+        return tupleList.iterator();
     }
 
 }
