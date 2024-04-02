@@ -17,9 +17,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * @Threadsafe
  */
 public class Catalog {
-    private ConcurrentHashMap<Integer, DbFile> tableIdToDbFile;
-    private ConcurrentHashMap<Integer, String> tableIdToName;
-    private ConcurrentHashMap<Integer, String> tableIdToPkeyField;
+    private HashMap<Integer, DbFile> tableIdToDbFile;
+    private HashMap<Integer, String> tableIdToName;
+    private HashMap<Integer, String> tableIdToPkeyField;
+    private HashMap<String, Integer> nameToTableId;
 
     /**
      * Constructor.
@@ -27,9 +28,10 @@ public class Catalog {
      */
     public Catalog() {
         // some code goes here
-        this.tableIdToDbFile = new ConcurrentHashMap<>();
-        this.tableIdToName = new ConcurrentHashMap<>();
-        this.tableIdToPkeyField = new ConcurrentHashMap<>();
+        this.tableIdToDbFile = new HashMap<>();
+        this.tableIdToName = new HashMap<>();
+        this.tableIdToPkeyField = new HashMap<>();
+        this.nameToTableId = new HashMap<>();
     }
 
     /**
@@ -47,6 +49,7 @@ public class Catalog {
         tableIdToDbFile.put(tableId, file);
         tableIdToName.put(tableId, name);
         tableIdToPkeyField.put(tableId, pkeyField);
+        nameToTableId.put(name, tableId);
     }
 
     public void addTable(DbFile file, String name) {
@@ -70,10 +73,8 @@ public class Catalog {
      */
     public int getTableId(String name) throws NoSuchElementException {
         // some code goes here
-        for (Map.Entry<Integer, String> entry : tableIdToName.entrySet()) {
-            if (entry.getValue().equals(name)) {
-                return entry.getKey();
-            }
+        if (nameToTableId.containsKey(name)) {
+            return nameToTableId.get(name);
         }
         throw new NoSuchElementException();
     }
