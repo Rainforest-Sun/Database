@@ -66,7 +66,6 @@ public class HeapFile implements DbFile {
      */
     public TupleDesc getTupleDesc() {
         // some code goes here
-        // throw new UnsupportedOperationException("implement this");
         return this.td;
     }
 
@@ -116,16 +115,38 @@ public class HeapFile implements DbFile {
     public ArrayList<Page> insertTuple(TransactionId tid, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
         // some code goes here
-        return null;
         // not necessary for lab1
+        if (!this.td.equals(t.getTupleDesc())) throw new DbException("TupleDesc doesn't match");
+        ArrayList<Page> modifiedPages = new ArrayList<>();
+        for (int i = 0; i < numPages(); ++i) {
+            PageId pid = new HeapPageId(getId(), i);
+            HeapPage tmpPage = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_WRITE);
+            try {
+                tmpPage.insertTuple(t);
+                modifiedPages.add(tmpPage);
+                return modifiedPages;
+            }
+            catch (DbException ignored) {}
+        }
+        HeapPage newPage = new HeapPage(new HeapPageId(getId(), numPages()), HeapPage.createEmptyPageData());
+        newPage.insertTuple(t);
+        modifiedPages.add(newPage);
+        writePage(newPage);
+        return modifiedPages;
     }
 
     // see DbFile.java for javadocs
     public ArrayList<Page> deleteTuple(TransactionId tid, Tuple t) throws DbException,
             TransactionAbortedException {
         // some code goes here
-        return null;
         // not necessary for lab1
+        if (!this.td.equals(t.getTupleDesc())) throw new DbException("TupleDesc doesn't match");
+        ArrayList<Page> modifiedPages = new ArrayList<>();
+        PageId pid = t.getRecordId().getPageId();
+        HeapPage tPage = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_WRITE);
+        tPage.deleteTuple(t);
+        modifiedPages.add(tPage);
+        return modifiedPages;
     }
 
     /**
@@ -194,6 +215,5 @@ public class HeapFile implements DbFile {
         // some code goes here
         return new HeapFileIterator(tid);
     }
-
 }
 

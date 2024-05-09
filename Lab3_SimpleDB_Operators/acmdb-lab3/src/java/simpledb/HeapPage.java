@@ -251,7 +251,7 @@ public class HeapPage implements Page {
         if (!isSlotUsed(rid.tupleno())) throw new DbException("The tuple slot is already empty");
         // t.rid = null;
         markSlotUsed(rid.tupleno(), false);
-        t.setRecordId(null);
+        // t.setRecordId(null);
     }
 
     /**
@@ -266,14 +266,15 @@ public class HeapPage implements Page {
         // not necessary for lab1
         // if (getNumEmptySlots() == 0) throw new DbException("The page is full");
         if (!td.equals(t.getTupleDesc())) throw new DbException("The tupledesc is dismatch");
-        int idx = 0;
-        for ( ; idx < this.numSlots; idx++) {
+        for (int idx = 0 ; idx < this.numSlots; idx++) {
             if (!isSlotUsed(idx)) {
-                break;
+                this.tuples[idx] = t;
+                t.setRecordId(new RecordId(this.pid, idx));
+                markSlotUsed(idx, true);
+                return;
             }
         }
-        t.setRecordId(new RecordId(this.pid, idx));
-        markSlotUsed(idx, true);
+        throw new DbException("No empty slot when insertTuple");
     }
 
     /**
@@ -316,7 +317,7 @@ public class HeapPage implements Page {
      */
     public boolean isSlotUsed(int i) {
         // some code goes here
-        if (i < 0 || i >= this.numSlots) {
+        if (i < 0 || i > this.numSlots) {
             throw new IllegalArgumentException("Invalid slot number");
         }
         int headerIndex = i / 8;
