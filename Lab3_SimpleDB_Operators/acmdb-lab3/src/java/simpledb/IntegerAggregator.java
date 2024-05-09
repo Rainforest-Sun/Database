@@ -1,9 +1,21 @@
 package simpledb;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 /**
  * Knows how to compute some aggregate over a set of IntFields.
  */
 public class IntegerAggregator implements Aggregator {
+
+    private int gbField;
+    private Type gbFieldType;
+    private int aField;
+    private Op op;
+
+    private HashMap<Field, Integer> groupByMap;
+    private HashMap<Field, Integer> countMap;
+    private TupleDesc aTD;
 
     private static final long serialVersionUID = 1L;
 
@@ -24,6 +36,14 @@ public class IntegerAggregator implements Aggregator {
 
     public IntegerAggregator(int gbfield, Type gbfieldtype, int afield, Op what) {
         // some code goes here
+        this.gbField = gbfield;
+        this.gbFieldType = gbfieldtype;
+        this.aField = afield;
+        this.op = what;
+        this.groupByMap = new HashMap<>();
+        this.countMap = new HashMap<>();
+        if (gbfield == NO_GROUPING) this.aTD = new TupleDesc(new Type[]{Type.INT_TYPE}, new String[]{"aggregateVal"});
+        else this.aTD = new TupleDesc(new Type[]{gbfieldtype, Type.INT_TYPE}, new String[]{"groupVal", "aggregateVal"});
     }
 
     /**
@@ -35,6 +55,41 @@ public class IntegerAggregator implements Aggregator {
      */
     public void mergeTupleIntoGroup(Tuple tup) {
         // some code goes here
+        Field groupField = null;
+        if (this.gbField != NO_GROUPING) groupField = tup.getField(this.gbField);
+        Integer preVal = groupByMap.get(groupField);
+        int curVal = ((IntField) tup.getField(this.aField)).getValue();
+        Integer newVal = null;
+        switch (this.op) {
+            case MIN: {
+                if (preVal == null) newVal = curVal;
+                else newVal = Integer.min(preVal, curVal);
+                break;
+            } 
+            case MAX: {
+                if (preVal == null) newVal = curVal;
+                else newVal = Integer.max(preVal, curVal);
+                break;
+            }
+            case AVG: {
+                if (preVal == null) newVal = curVal;
+                else newVal = preVal + curVal;
+                Integer cnt = countMap.getOrDefault(groupField, 0);
+                countMap.put(groupField, cnt + 1);
+                break;
+            }
+            case SUM: {
+                if (preVal == null) newVal = curVal;
+                else newVal = preVal + curVal;
+                break;
+            }
+            case COUNT: {
+                if (preVal == null) newVal = 1;
+                else newVal = preVal + 1;
+                break;
+            }
+        }
+        groupByMap.put(groupField, newVal);
     }
 
     /**
@@ -47,8 +102,22 @@ public class IntegerAggregator implements Aggregator {
      */
     public DbIterator iterator() {
         // some code goes here
-        throw new
-        UnsupportedOperationException("please implement me for lab3");
+        ArrayList<Tuple> aTP = new ArrayList<>();
+        for (Map.Entry<Field, Integer> entry : groupByMap.entrySet()) {
+            Tuple tp = new Tuple(this.aTD);
+            Integer val = entry.getValue();
+            if (this.op == Op.AVG)
+                val = val / countMap.get(entry.getKey());
+            if (this.gbField == NO_GROUPING) {
+                tp.setField(0, new IntField(val));
+            } 
+            else {
+                tp.setField(0, entry.getKey());
+                tp.setField(1, new IntField(val));
+            }
+            aTP.add(tp);
+        }
+        return new TupleIterator(this.aTD, aTP);
     }
 
 }
