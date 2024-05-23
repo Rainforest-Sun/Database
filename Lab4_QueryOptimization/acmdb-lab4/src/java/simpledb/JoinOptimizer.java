@@ -111,7 +111,7 @@ public class JoinOptimizer {
             // HINT: You may need to use the variable "j" if you implemented
             // a join algorithm that's more complicated than a basic
             // nested-loops join.
-            return -1.0;
+            return cost1 + card1 * (cost2 + card2);
         }
     }
 
@@ -157,6 +157,32 @@ public class JoinOptimizer {
             Map<String, Integer> tableAliasToId) {
         int card = 1;
         // some code goes here
+        switch (joinOp) {
+            case EQUALS: {
+                if (t1pkey && t2pkey) card = Math.min(card1, card2);
+                else if (t1pkey) card = card2;
+                else if (t2pkey) card = card1;
+                else card = Math.max(card1, card2); // estimate the join cardinality as README says
+                break;
+            }
+            case NOT_EQUALS: {
+                if (t1pkey && t2pkey) card = card1 * card2 - Math.min(card1, card2);
+                else if (t1pkey) card = card1 * card2 - card2;
+                else if (t2pkey) card = card1 * card2 - card1;
+                else card = card1 * card2 - Math.max(card1, card2);
+                break;
+            }
+            case GREATER_THAN:
+            case GREATER_THAN_OR_EQ:
+            case LESS_THAN:
+            case LESS_THAN_OR_EQ: {
+                card = (int) (0.3 * card1 * card2);
+                break;
+            }
+            default: {
+                break;
+            }
+        }
         return card <= 0 ? 1 : card;
     }
 
@@ -221,7 +247,6 @@ public class JoinOptimizer {
 
         // some code goes here
         //Replace the following
-        return joins;
     }
 
     // ===================== Private Methods =================================
