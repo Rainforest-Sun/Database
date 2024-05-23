@@ -66,6 +66,15 @@ public class TableStats {
      */
     static final int NUM_HIST_BINS = 100;
 
+    // Other variables
+    private int tableid;
+    private int ioCostPerPage;
+    private int numTuples;
+    private TupleDesc td;
+    private HeapFile table;
+    private ConcurrentHashMap<Integer, IntHistogram> intHistograms;
+    private ConcurrentHashMap<Integer, StringHistogram> stringHistograms;
+
     /**
      * Create a new TableStats object, that keeps track of statistics on each
      * column of a table
@@ -85,6 +94,60 @@ public class TableStats {
         // necessarily have to (for example) do everything
         // in a single scan of the table.
         // some code goes here
+        this.tableid = tableid;
+        this.ioCostPerPage = ioCostPerPage;
+        this.table = (HeapFile) Database.getCatalog().getDatabaseFile(tableid);
+        this.td = table.getTupleDesc();
+        this.numTuples = 0;
+        this.intHistograms = new ConcurrentHashMap<>();
+        this.stringHistograms = new ConcurrentHashMap<>();
+        Transaction transaction = new Transaction();
+        DbFileIterator iterator = table.iterator(transaction.getId());
+        int[] minValues = new int[td.numFields()];
+        int[] maxValues = new int[td.numFields()];
+        for (int i = 0; i < td.numFields(); ++i) {
+            minValues[i] = Integer.MAX_VALUE;
+            maxValues[i] = Integer.MIN_VALUE;
+        }
+        try {
+            iterator.open();
+            while (iterator.hasNext()) {
+                Tuple tuple = iterator.next();
+                this.numTuples++;
+                for (int i = 0; i < td.numFields(); ++i) {
+                    Field field = tuple.getField(i);
+                    if (field.getType().equals(Type.INT_TYPE)) {
+                        int value = ((IntField) field).getValue();
+                        minValues[i] = Math.min(minValues[i], value);
+                        maxValues[i] = Math.max(maxValues[i], value);
+                    }
+                }
+            }
+            for (int i = 0; i < td.numFields(); ++i) {
+                // Field field = this.td.getFieldType(i);
+                if (this.td.getFieldType(i).equals(Type.INT_TYPE)) {
+                    intHistograms.put(i, new IntHistogram(NUM_HIST_BINS, minValues[i], maxValues[i]));
+                }
+                else if (this.td.getFieldType(i).equals(Type.STRING_TYPE)) {
+                    stringHistograms.put(i, new StringHistogram(NUM_HIST_BINS));
+                }
+            }
+            iterator.rewind();
+            while (iterator.hasNext()) {
+                Tuple tuple = iterator.next();
+                for (int i = 0; i < td.numFields(); ++i) {
+                    Field field = tuple.getField(i);
+                    if (field.getType().equals(Type.INT_TYPE)) {
+                        intHistograms.get(i).addValue(((IntField) field).getValue());
+                    }
+                    else if (field.getType().equals(Type.STRING_TYPE)) {
+                        stringHistograms.get(i).addValue(((StringField) field).getValue());
+                    }
+                }
+            }
+        } catch (DbException | TransactionAbortedException e) {
+            e.printStackTrace();
+        }
     }
 
     /**
@@ -101,7 +164,7 @@ public class TableStats {
      */
     public double estimateScanCost() {
         // some code goes here
-        return 0;
+        return this.table.numPages() * this.ioCostPerPage;
     }
 
     /**
@@ -115,7 +178,7 @@ public class TableStats {
      */
     public int estimateTableCardinality(double selectivityFactor) {
         // some code goes here
-        return 0;
+        return (int) Math.ceil(this.numTuples * selectivityFactor);
     }
 
     /**
@@ -148,6 +211,19 @@ public class TableStats {
      */
     public double estimateSelectivity(int field, Predicate.Op op, Field constant) {
         // some code goes here
+        // if (td.getFieldType(field).equals(Type.INT_TYPE)) {
+        //     return intHistograms.get(field).estimateSelectivity(op, ((IntField) constant).getValue());
+        // }
+        // else if (td.getFieldType(field).equals(Type.STRING_TYPE)) {
+        //     return stringHistograms.get(field).estimateSelectivity(op, ((StringField) constant).getValue());
+        // }
+        // throw new IllegalArgumentException("Unsupported field type");
+        if (intHistograms.containsKey(field)) {
+            return intHistograms.get(field).estimateSelectivity(op, ((IntField) constant).getValue());
+        }
+        else if (stringHistograms.containsKey(field)) {
+            return stringHistograms.get(field).estimateSelectivity(op, ((StringField) constant).getValue());
+        }
         return 1.0;
     }
 
@@ -156,7 +232,7 @@ public class TableStats {
      * */
     public int totalTuples() {
         // some code goes here
-        return 0;
+        return this.numTuples;
     }
 
 }

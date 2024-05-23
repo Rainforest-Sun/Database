@@ -73,7 +73,7 @@ public class IntHistogram {
         switch (op) {
             case EQUALS: {
                 if (v < this.min || v > this.max) return 0.0;
-                else return (double) this.buckets[index] / this.getBucketWidth(index) / this.ntups;
+                else return (double) 1.0 * this.buckets[index] / this.getBucketWidth(index) / (double) this.ntups;
             }
             case NOT_EQUALS: {
                 return 1.0 - this.estimateSelectivity(Predicate.Op.EQUALS, v);
@@ -83,11 +83,11 @@ public class IntHistogram {
                 if (v < this.min) return 1.0;
                 if (v >= this.max) return 0.0;
                 for (int i = index + 1; i < this.nbuckets; ++i) {
-                    selectivity += (double) this.buckets[i];
+                    selectivity += this.buckets[i];
                 }
                 int right = index * this.width + getBucketWidth(index);
-                selectivity += (double) ((double) this.buckets[index] * (right - v)) / this.getBucketWidth(index);
-                return selectivity / this.ntups;
+                selectivity += (double) this.buckets[index] * (right - v) / this.getBucketWidth(index);
+                return selectivity / (double) this.ntups;
             }
             case LESS_THAN: {
                 double selectivity = 0.0;
@@ -97,14 +97,16 @@ public class IntHistogram {
                     selectivity += (double) this.buckets[i];
                 }
                 int left = index * this.width + 1;
-                selectivity += (double) ((double) this.buckets[index] * (v - left)) / this.getBucketWidth(index);
-                return selectivity / this.ntups;
+                selectivity += (double) this.buckets[index] * (v - left) / this.getBucketWidth(index);
+                return selectivity / (double) this.ntups;
             }
             case GREATER_THAN_OR_EQ: {
-                return this.estimateSelectivity(Predicate.Op.GREATER_THAN, v) + this.estimateSelectivity(Predicate.Op.EQUALS, v);
+                // return this.estimateSelectivity(Predicate.Op.GREATER_THAN, v) + this.estimateSelectivity(Predicate.Op.EQUALS, v);
+                return this.estimateSelectivity(Predicate.Op.GREATER_THAN, v-1);
             }
             case LESS_THAN_OR_EQ: {
-                return this.estimateSelectivity(Predicate.Op.LESS_THAN, v) + this.estimateSelectivity(Predicate.Op.EQUALS, v);
+                // return this.estimateSelectivity(Predicate.Op.LESS_THAN, v) + this.estimateSelectivity(Predicate.Op.EQUALS, v);
+                return this.estimateSelectivity(Predicate.Op.LESS_THAN, v+1);
             }
             default: {
                 throw new IllegalArgumentException("Invalid operator");
