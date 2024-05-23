@@ -246,7 +246,26 @@ public class JoinOptimizer {
         //Not necessary for labs 1--3
 
         // some code goes here
-        //Replace the following
+        PlanCache pc = new PlanCache();
+        int nNodes = joins.size();
+        for (int i = 1; i <= nNodes; ++i) {
+            Set<Set<LogicalJoinNode>> setOfSubsets = enumerateSubsets(joins, i);
+            for (Set<LogicalJoinNode> subset : setOfSubsets) {
+                double bestCostSoFar = Double.MAX_VALUE;
+                CostCard bestCostCard = null;
+                for (LogicalJoinNode j : subset) {
+                    CostCard cc = computeCostAndCardOfSubplan(stats, filterSelectivities, j, subset, bestCostSoFar, pc);
+                    if (cc != null && cc.cost < bestCostSoFar) {
+                        bestCostSoFar = cc.cost;
+                        bestCostCard = cc;
+                    }
+                }
+                if (bestCostCard != null) {
+                    pc.addPlan(subset, bestCostCard.cost, bestCostCard.card, bestCostCard.plan);
+                }
+            }
+        }
+        return pc.getOrder(new HashSet<>(joins));
     }
 
     // ===================== Private Methods =================================

@@ -1085,6 +1085,7 @@ simpledb.Predicate
 simpledb.TableStats
 simpledb.Catalog
 javax.swing.ImageIcon
+java.lang.Math
 java.lang.String
 java.util.NoSuchElementException
 javax.swing.JFrame
@@ -1097,6 +1098,7 @@ simpledb.LogicalJoinNode
 java.util.Set
 simpledb.LogicalPlan
 javax.swing.JTree
+simpledb.JoinOptimizer$1
 simpledb.CostCard
 javax.swing.tree.DefaultMutableTreeNode
 simpledb.Database
