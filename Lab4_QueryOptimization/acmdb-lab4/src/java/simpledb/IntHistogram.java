@@ -4,6 +4,13 @@ package simpledb;
  */
 public class IntHistogram {
 
+    private int[] buckets;
+    private int min;
+    private int max;
+    private int width;
+    private int ntups;
+    private int nbuckets;
+
     /**
      * Create a new IntHistogram.
      * 
@@ -22,6 +29,15 @@ public class IntHistogram {
      */
     public IntHistogram(int buckets, int min, int max) {
     	// some code goes here
+        if (max - min + 1 < buckets) {
+            buckets = max - min + 1;
+        }
+        this.buckets = new int[buckets];
+        this.min = min;
+        this.max = max;
+        this.width = (max - min + 1) / buckets;
+        this.ntups = 0;
+        this.nbuckets = buckets;
     }
 
     /**
@@ -30,6 +46,14 @@ public class IntHistogram {
      */
     public void addValue(int v) {
     	// some code goes here
+        int index = Math.min((v - this.min) / this.width, this.nbuckets - 1);
+        this.buckets[index]++;
+        this.ntups++;
+    }
+
+    private int getBucketWidth(int index) {
+        if (index < this.nbuckets - 1) return this.width;
+        else return (this.max - this.min + 1) - this.width * (this.nbuckets - 1);
     }
 
     /**
@@ -43,9 +67,49 @@ public class IntHistogram {
      * @return Predicted selectivity of this particular operator and value
      */
     public double estimateSelectivity(Predicate.Op op, int v) {
-
     	// some code goes here
-        return -1.0;
+        int index = Math.min((v - this.min) / this.width, this.nbuckets - 1);
+        // double selectivity = 0.0;
+        switch (op) {
+            case EQUALS: {
+                if (v < this.min || v > this.max) return 0.0;
+                else return (double) this.buckets[index] / this.getBucketWidth(index) / this.ntups;
+            }
+            case NOT_EQUALS: {
+                return 1.0 - this.estimateSelectivity(Predicate.Op.EQUALS, v);
+            }
+            case GREATER_THAN: {
+                double selectivity = 0.0;
+                if (v < this.min) return 1.0;
+                if (v >= this.max) return 0.0;
+                for (int i = index + 1; i < this.nbuckets; ++i) {
+                    selectivity += (double) this.buckets[i];
+                }
+                int right = index * this.width + getBucketWidth(index);
+                selectivity += (double) ((double) this.buckets[index] * (right - v)) / this.getBucketWidth(index);
+                return selectivity / this.ntups;
+            }
+            case LESS_THAN: {
+                double selectivity = 0.0;
+                if (v <= this.min) return 0.0;
+                if (v > this.max) return 1.0;
+                for (int i = 0; i < index; ++i) {
+                    selectivity += (double) this.buckets[i];
+                }
+                int left = index * this.width + 1;
+                selectivity += (double) ((double) this.buckets[index] * (v - left)) / this.getBucketWidth(index);
+                return selectivity / this.ntups;
+            }
+            case GREATER_THAN_OR_EQ: {
+                return this.estimateSelectivity(Predicate.Op.GREATER_THAN, v) + this.estimateSelectivity(Predicate.Op.EQUALS, v);
+            }
+            case LESS_THAN_OR_EQ: {
+                return this.estimateSelectivity(Predicate.Op.LESS_THAN, v) + this.estimateSelectivity(Predicate.Op.EQUALS, v);
+            }
+            default: {
+                throw new IllegalArgumentException("Invalid operator");
+            }
+        }
     }
     
     /**
