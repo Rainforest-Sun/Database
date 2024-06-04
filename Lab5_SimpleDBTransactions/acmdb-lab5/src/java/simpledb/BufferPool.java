@@ -35,6 +35,46 @@ public class BufferPool {
     private boolean[] pageBufferUsed;
     private HashMap<PageId, Integer> pageId2Loc;
     private LinkedList<PageId> LRUList;
+    // Add for concurrency
+    private ConcurrentHashMap<PageId, PageLock> pid2Lock;
+    private ConcurrentHashMap<TransactionId, Set<PageId>> tid2Pid;
+    private DependencyGraph DG;
+
+    private class DependencyGraph {
+        public ConcurrentHashMap<TransactionId, Set<TransactionId>> tidToEdge = new ConcurrentHashMap<>();
+        public Set<TransactionId> vis = Collections.synchronizedSet(new HashSet<>());
+
+        public synchronized void modifyEdges(TransactionId tid, PageId pid) {
+            tidToEdge.putIfAbsent(tid, new HashSet<>());
+            Set<TransactionId> edges = tidToEdge.get(tid);
+            edges.clear();
+            if (pid == null) return;
+            Set <TransactionId> pidToTid;
+            synchronized (pid2Lock.get(pid)) {
+                pidToTid = pid2Lock.get(pid).relatedTid();
+            }
+            edges.addAll(pidToTid);
+        }
+
+        public boolean DFS(TransactionId cur, TransactionId fa) {
+            vis.add(cur);
+            Set<TransactionId> edges = tidToEdge.get(cur);
+            if (edges == null) return false;
+            boolean flag = false;
+            for (TransactionId nxt : edges) {
+                if (nxt.equals(fa)) return true;
+                else if (!vis.contains(nxt)) {
+                    flag = flag || DFS(nxt, fa);
+                }
+            }
+            return flag;
+        }
+
+        public synchronized boolean isDeadLocked(TransactionId tid) {
+            vis.clear();
+            return DFS(tid, tid);
+        }
+    }
 
     /**
      * Creates a BufferPool that caches up to numPages pages.
@@ -50,6 +90,9 @@ public class BufferPool {
         this.LRUList = new LinkedList<>();
         for (int i = 0; i < this.pageBufferUsed.length; i++)
             pageBufferUsed[i] = false;
+        this.pid2Lock = new ConcurrentHashMap<>();
+        this.tid2Pid = new ConcurrentHashMap<>();
+        this.DG = new DependencyGraph();
     }
     
     public static int getPageSize() {
@@ -84,39 +127,60 @@ public class BufferPool {
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
         throws TransactionAbortedException, DbException {
         // some code goes here
-        if (pageId2Loc.containsKey(pid)) {
-            LRUList.remove(pid);
-            LRUList.addLast(pid);
-            return this.pageBuffer[pageId2Loc.get(pid)];
-        } 
-        else {
-            Page page = Database.getCatalog().getDatabaseFile(pid.getTableId()).readPage(pid);
-            int index = this.pageBuffer.length;
-            for (int i = 0; i < this.pageBuffer.length; i++)
-            {
-                if (!this.pageBufferUsed[i]) {
-                    index = i;
-                    break;
-                }
+        pid2Lock.putIfAbsent(pid, new PageLock(pid));
+        boolean succ;
+        synchronized (pid2Lock.get(pid)) {
+            succ = pid2Lock.get(pid).addLock(perm, tid);
+        }
+        while (!succ) {
+            DG.modifyEdges(tid, pid);
+            if (DG.isDeadLocked(tid)) {
+                throw new TransactionAbortedException();
             }
-            if (index >= this.pageBuffer.length)
-            {
-                this.evictPage();
+            synchronized (pid2Lock.get(pid)) {
+                succ = pid2Lock.get(pid).addLock(perm, tid);
+            }
+        }
+        DG.modifyEdges(tid, null);
+        tid2Pid.putIfAbsent(tid, new HashSet<>());
+        tid2Pid.get(tid).add(pid);
+
+        synchronized (this) {
+            if (pageId2Loc.containsKey(pid)) {
+                LRUList.remove(pid);
+                LRUList.addLast(pid);
+                return this.pageBuffer[pageId2Loc.get(pid)];
+            } 
+            else {
+                Page page = Database.getCatalog().getDatabaseFile(pid.getTableId()).readPage(pid);
+                int index = this.pageBuffer.length;
                 for (int i = 0; i < this.pageBuffer.length; i++)
                 {
-                    if (!this.pageBufferUsed[i])
-                    {
+                    if (!this.pageBufferUsed[i]) {
                         index = i;
                         break;
                     }
                 }
+                if (index >= this.pageBuffer.length)
+                {
+                    this.evictPage();
+                    for (int i = 0; i < this.pageBuffer.length; i++)
+                    {
+                        if (!this.pageBufferUsed[i])
+                        {
+                            index = i;
+                            break;
+                        }
+                    }
+                }
+                this.pageBuffer[index] = page;
+                this.pageBufferUsed[index] = true;
+                this.pageId2Loc.put(pid, index);
+                this.LRUList.addLast(pid);
+                return page;
             }
-            this.pageBuffer[index] = page;
-            this.pageBufferUsed[index] = true;
-            this.pageId2Loc.put(pid, index);
-            this.LRUList.addLast(pid);
-            return page;
         }
+        
     }
 
     /**
@@ -128,9 +192,12 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      * @param pid the ID of the page to unlock
      */
-    public  void releasePage(TransactionId tid, PageId pid) {
+    public void releasePage(TransactionId tid, PageId pid) {
         // some code goes here
-        // not necessary for lab1|lab2
+        synchronized (pid2Lock.get(pid)) {
+            pid2Lock.get(pid).releaseLock(tid);
+        }
+        tid2Pid.get(tid).remove(pid);
     }
 
     /**
@@ -146,8 +213,9 @@ public class BufferPool {
     /** Return true if the specified transaction has a lock on the specified page */
     public boolean holdsLock(TransactionId tid, PageId p) {
         // some code goes here
-        // not necessary for lab1|lab2
-        return false;
+        synchronized (pid2Lock.get(p)) {
+            return pid2Lock.get(p).isHolding(tid);
+        }
     }
 
     /**
