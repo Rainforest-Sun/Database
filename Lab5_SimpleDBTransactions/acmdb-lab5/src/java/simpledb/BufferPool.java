@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
+import java.util.*;
 
 /**
  * BufferPool manages the reading and writing of pages into memory from
@@ -130,7 +131,7 @@ public class BufferPool {
         pid2Lock.putIfAbsent(pid, new PageLock(pid));
         boolean succ;
         synchronized (pid2Lock.get(pid)) {
-            succ = pid2Lock.get(pid).addLock(perm, tid);
+            succ = pid2Lock.get(pid).acquireLock(perm, tid);
         }
         while (!succ) {
             DG.modifyEdges(tid, pid);
@@ -138,7 +139,7 @@ public class BufferPool {
                 throw new TransactionAbortedException();
             }
             synchronized (pid2Lock.get(pid)) {
-                succ = pid2Lock.get(pid).addLock(perm, tid);
+                succ = pid2Lock.get(pid).acquireLock(perm, tid);
             }
         }
         DG.modifyEdges(tid, null);
@@ -154,8 +155,7 @@ public class BufferPool {
             else {
                 Page page = Database.getCatalog().getDatabaseFile(pid.getTableId()).readPage(pid);
                 int index = this.pageBuffer.length;
-                for (int i = 0; i < this.pageBuffer.length; i++)
-                {
+                for (int i = 0; i < this.pageBuffer.length; i++) {
                     if (!this.pageBufferUsed[i]) {
                         index = i;
                         break;
@@ -173,6 +173,7 @@ public class BufferPool {
                         }
                     }
                 }
+                page.setBeforeImage();
                 this.pageBuffer[index] = page;
                 this.pageBufferUsed[index] = true;
                 this.pageId2Loc.put(pid, index);
@@ -207,7 +208,7 @@ public class BufferPool {
      */
     public void transactionComplete(TransactionId tid) throws IOException {
         // some code goes here
-        // not necessary for lab1|lab2
+        transactionComplete(tid, true);
     }
 
     /** Return true if the specified transaction has a lock on the specified page */
@@ -228,7 +229,30 @@ public class BufferPool {
     public void transactionComplete(TransactionId tid, boolean commit)
         throws IOException {
         // some code goes here
-        // not necessary for lab1|lab2
+        Set<PageId> lockedPages = tid2Pid.get(tid);
+        tid2Pid.remove(tid);
+        if (lockedPages == null) return;
+        for (PageId pid : lockedPages) {
+            if (pageId2Loc.containsKey(pid)) {
+                Page page = pageBuffer[pageId2Loc.get(pid)];
+                if (pid2Lock.get(pid).isExclusive()) {
+                    if (commit) {
+                        if (page.isDirty() != null) {
+                            this.flushPage(pid);
+                            page.markDirty(false, null);
+                            page.setBeforeImage();
+                        }
+                    } 
+                    else {
+                        assert page.getBeforeImage() != null;
+                        pageBuffer[pageId2Loc.get(pid)] = page.getBeforeImage();
+                    }
+                }
+            }
+            synchronized (pid2Lock.get(pid)) {
+                pid2Lock.get(pid).releaseLock(tid);
+            }
+        }
     }
 
     /**
@@ -249,39 +273,42 @@ public class BufferPool {
     public void insertTuple(TransactionId tid, int tableId, Tuple t)
         throws DbException, IOException, TransactionAbortedException {
         // some code goes here
-        // not necessary for lab1
         DbFile targetTable = Database.getCatalog().getDatabaseFile(tableId);
         ArrayList<Page> dirtyPages = targetTable.insertTuple(tid, t);
-        for (Page dirtyPage : dirtyPages) {
-            PageId pid = dirtyPage.getId();
-            if (this.pageId2Loc.containsKey(pid)) {
-                LRUList.remove(pid);
-                LRUList.addLast(pid);
-                pageBuffer[pageId2Loc.get(pid)] = dirtyPage;
-            }
-            else {
-                int index = pageBuffer.length;
-                for (int i = 0; i < pageBuffer.length; ++i) {
-                    if (!pageBufferUsed[i]) {
-                        index = i;
-                        break;
-                    }
+        synchronized (this) {
+            
+            for (Page dirtyPage : dirtyPages) {
+                PageId pid = dirtyPage.getId();
+                if (this.pageId2Loc.containsKey(pid)) {
+                    LRUList.remove(pid);
+                    LRUList.addLast(pid);
+                    pageBuffer[pageId2Loc.get(pid)] = dirtyPage;
                 }
-                while (index >= pageBuffer.length) {
-                    this.evictPage();
+                else {
+                    int index = pageBuffer.length;
                     for (int i = 0; i < pageBuffer.length; ++i) {
                         if (!pageBufferUsed[i]) {
                             index = i;
                             break;
                         }
                     }
+                    while (index >= pageBuffer.length) {
+                        this.evictPage();
+                        for (int i = 0; i < pageBuffer.length; ++i) {
+                            if (!pageBufferUsed[i]) {
+                                index = i;
+                                break;
+                            }
+                        }
+                    }
+                    pageBuffer[index] = dirtyPage;
+                    pageBufferUsed[index] = true;
+                    pageId2Loc.put(pid, index);
+                    LRUList.addLast(pid);
+                    dirtyPage.setBeforeImage();
                 }
-                pageBuffer[index] = dirtyPage;
-                pageBufferUsed[index] = true;
-                pageId2Loc.put(pid, index);
-                LRUList.addLast(pid);
+                dirtyPage.markDirty(true, tid);
             }
-            dirtyPage.markDirty(true, tid);
         }
     }
 
@@ -301,39 +328,42 @@ public class BufferPool {
     public  void deleteTuple(TransactionId tid, Tuple t)
         throws DbException, IOException, TransactionAbortedException {
         // some code goes here
-        // not necessary for lab1
         DbFile targetTable = Database.getCatalog().getDatabaseFile(t.getRecordId().getPageId().getTableId());
         ArrayList<Page> dirtyPages = targetTable.deleteTuple(tid, t);
-        for (Page dirtyPage : dirtyPages) {
-            PageId pid = dirtyPage.getId();
-            if (this.pageId2Loc.containsKey(pid)) {
-                LRUList.remove(pid);
-                LRUList.addLast(pid);
-                pageBuffer[pageId2Loc.get(pid)] = dirtyPage;
-            } 
-            else {
-                int index = pageBuffer.length;
-                for (int i = 0; i < pageBuffer.length; ++i) {
-                    if (!pageBufferUsed[i]) {
-                        index = i;
-                        break;
-                    }
-                }
-                while (index >= pageBuffer.length) {
-                    this.evictPage();
-                    for (int i = 0; i < pageBuffer.length; i++) {
+        synchronized (this) {
+            
+            for (Page dirtyPage : dirtyPages) {
+                PageId pid = dirtyPage.getId();
+                if (this.pageId2Loc.containsKey(pid)) {
+                    LRUList.remove(pid);
+                    LRUList.addLast(pid);
+                    pageBuffer[pageId2Loc.get(pid)] = dirtyPage;
+                } 
+                else {
+                    int index = pageBuffer.length;
+                    for (int i = 0; i < pageBuffer.length; ++i) {
                         if (!pageBufferUsed[i]) {
                             index = i;
                             break;
                         }
                     }
+                    while (index >= pageBuffer.length) {
+                        this.evictPage();
+                        for (int i = 0; i < pageBuffer.length; i++) {
+                            if (!pageBufferUsed[i]) {
+                                index = i;
+                                break;
+                            }
+                        }
+                    }
+                    pageBuffer[index] = dirtyPage;
+                    pageBufferUsed[index] = true;
+                    pageId2Loc.put(pid, index);
+                    LRUList.addLast(pid);
+                    dirtyPage.setBeforeImage();
                 }
-                pageBuffer[index] = dirtyPage;
-                pageBufferUsed[index] = true;
-                pageId2Loc.put(pid, index);
-                LRUList.addLast(pid);
+                dirtyPage.markDirty(true, tid);
             }
-            dirtyPage.markDirty(true, tid);
         }
     }
 
@@ -344,7 +374,6 @@ public class BufferPool {
      */
     public synchronized void flushAllPages() throws IOException {
         // some code goes here
-        // not necessary for lab1
         try {
             for (PageId pid : pageId2Loc.keySet()) {
                 flushPage(pid);
@@ -365,7 +394,6 @@ public class BufferPool {
     */
     public synchronized void discardPage(PageId pid) {
         // some code goes here
-        // not necessary for lab1
         if (pageId2Loc.containsKey(pid)) {
             int loc = pageId2Loc.get(pid);
             pageBufferUsed[loc] = false;
@@ -384,8 +412,11 @@ public class BufferPool {
         try {
             if (pageId2Loc.containsKey(pid)) {
                 int loc = pageId2Loc.get(pid);
-                Database.getCatalog().getDatabaseFile(pid.getTableId()).writePage(pageBuffer[loc]);
-                this.pageBufferUsed[loc] = false;
+                Page page = pageBuffer[loc];
+                if (page.isDirty() == null) return;
+                page.markDirty(false, null);
+                Database.getCatalog().getDatabaseFile(pid.getTableId()).writePage(page);
+                // this.pageBufferUsed[loc] = false;
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -406,9 +437,17 @@ public class BufferPool {
      */
     private synchronized  void evictPage() throws DbException {
         // some code goes here
-        // not necessary for lab1
-        if (this.LRUList.size() == 0) throw new DbException("No page to evict");
-        PageId targetPageId = this.LRUList.pollFirst();
+        Iterator<PageId> iterator = LRUList.iterator();
+        PageId targetPageId = null;
+        while (iterator.hasNext()) {
+            PageId cur = iterator.next();
+            Page page = pageBuffer[pageId2Loc.get(cur)];
+            if (page.isDirty() == null) {
+                targetPageId = cur;
+                break;
+            }
+        }
+        if (targetPageId == null) throw new DbException("No page to evict");
         int loc = pageId2Loc.get(targetPageId);
         this.pageBufferUsed[loc] = false;
         try {
@@ -418,6 +457,6 @@ public class BufferPool {
             System.exit(0);
         }
         pageId2Loc.remove(targetPageId);
+        this.LRUList.remove(targetPageId);    
     }
-
 }

@@ -51,7 +51,7 @@ public class PageLock {
     }
 
     void releaseLock(TransactionId tid) {
-        assert XLock == null || tid.equals(XLock), "Illegal lock release operation!";
+        assert XLock == null || tid.equals(XLock) : "Illegal lock release operation!";
         if (tid.equals(XLock)) XLock = null;
         else SLocks.remove(tid);
     }
@@ -65,7 +65,7 @@ public class PageLock {
     }
 
     boolean isExclusive(TransactionId tid) {
-        return XLock != null && XLock.equal(tid);
+        return XLock != null && XLock.equals(tid);
     }
 
     Set<TransactionId> relatedTid() {
